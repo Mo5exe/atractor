@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Atractor - Control Panel</title>
+  <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.8"></script>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      color: #fff;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    .container {
+      display: flex;
+      height: 100vh;
+    }
+
+    /* === PANEL LATERAL DE PRESETS === */
+    .presets-panel {
+      width: 280px;
+      background: rgba(0, 0, 0, 0.5);
+      border-right: 1px solid rgba(255, 255, 255, 0.1);
+      overflow-y: auto;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 15px;
+    }
+
+    .presets-panel h2 {
+      font-size: 14px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: #00d9ff;
+      margin-bottom: 10px;
+    }
+
+    .presets-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      flex: 1;
+      overflow-y: auto;
+    }
+
+    .preset-item {
+      background: rgba(0, 217, 255, 0.1);
+      border: 1px solid rgba(0, 217, 255, 0.3);
+      border-radius: 6px;
+      padding: 12px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 13px;
+    }
+
+    .preset-item:hover {
+      background: rgba(0, 217, 255, 0.2);
+      border-color: rgba(0, 217, 255, 0.6);
+    }
+
+    .preset-item.active {
+      background: rgba(0, 217, 255, 0.3);
+      border-color: #00d9ff;
+      box-shadow: 0 0 10px rgba(0, 217, 255, 0.3);
+    }
+
+    .preset-delete {
+      background: rgba(255, 100, 100, 0.3);
+      border: none;
+      color: #ff6464;
+      padding: 4px 8px;
+      border-radius: 3px;
+      cursor: pointer;
+      font-size: 11px;
+      transition: all 0.2s;
+    }
+
+    .preset-delete:hover {
+      background: rgba(255, 100, 100, 0.6);
+    }
+
+    .save-preset-btn {
+      width: 100%;
+      padding: 12px;
+      background: linear-gradient(135deg, #00d9ff, #0099cc);
+      border: none;
+      color: #000;
+      font-weight: 600;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.3s;
+      font-size: 13px;
+      text-transform: uppercase;
+    }
+
+    .save-preset-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 5px 20px rgba(0, 217, 255, 0.4);
+    }
+
+    /* === PANEL CENTRAL === */
+    .main-panel {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      padding: 20px;
+      overflow-y: auto;
+      gap: 20px;
+    }
+
+    .header {
+      text-align: center;
+    }
+
+    .header h1 {
+      font-size: 28px;
+      background: linear-gradient(135deg, #00d9ff, #ff006e);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 5px;
+    }
+
+    .header p {
+      font-size: 12px;
+      color: #888;
+    }
+
+    /* === WEBCAM PREVIEW === */
+    .hand-detection-section {
+      background: rgba(0, 0, 0, 0.3);
+      border: 1px solid rgba(0, 217, 255, 0.2);
+      border-radius: 8px;
+      padding: 15px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .hand-detection-section h3 {
+      font-size: 13px;
+      text-transform: uppercase;
+      color: #00d9ff;
+      letter-spacing: 1px;
+    }
+
+    #webcamCanvas {
+      width: 100%;
+      max-width: 300px;
+      height: auto;
+      border-radius: 6px;
+      background: #000;
+    }
+
+    .hand-status {
+      font-size: 12px;
+      padding: 8px;
+      border-radius: 4px;
+      background: rgba(0, 200, 100, 0.2);
+      border: 1px solid rgba(0, 200, 100, 0.5);
+      color: #64ff64;
+    }
+
+    /* === LAYERS SECTION === */
+    .layers-section {
+      background: rgba(0, 0, 0, 0.3);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 8px;
+      padding: 15px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .layers-section h3 {
+      font-size: 13px;
+      text-transform: uppercase;
+      color: #00d9ff;
+      letter-spacing: 1px;
+    }
+
+    .layer-item {
+      background: rgba(100, 100, 200, 0.15);
+      border: 1px solid rgba(100, 100, 200, 0.3);
+      border-radius: 6px;
+      padding: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 13px;
+    }
+
+    .layer-controls {
+      display: flex;
+      gap: 8px;
+    }
+
+    .layer-btn {
+      padding: 5px 10px;
+      background: rgba(100, 100, 200, 0.4);
+      border: 1px solid rgba(100, 100, 200, 0.6);
+      color: #fff;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 11px;
+      transition: all 0.2s;
+    }
+
+    .layer-btn:hover {
+      background: rgba(100, 100, 200, 0.6);
+    }
+
+    /* === ATTRACTOR CONTROL === */
+    .attractor-control {
+      background: rgba(0, 0, 0, 0.3);
+      border: 1px solid rgba(255, 200, 100, 0.2);
+      border-radius: 8px;
+      padding: 15px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .attractor-control h3 {
+      font-size: 13px;
+      text-transform: uppercase;
+      color: #ffc864;
+      letter-spacing: 1px;
+    }
+
+    .slider-group {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .slider-group label {
+      font-size: 12px;
+      min-width: 100px;
+    }
+
+    .slider-group input[type="range"] {
+      flex: 1;
+      height: 6px;
+      border-radius: 3px;
+      background: linear-gradient(to right, #ff006e, #00d9ff);
+      outline: none;
+      -webkit-appearance: none;
+    }
+
+    .slider-group input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: #00d9ff;
+      cursor: pointer;
+      box-shadow: 0 0 8px rgba(0, 217, 255, 0.6);
+    }
+
+    .slider-group input[type="range"]::-moz-range-thumb {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: #00d9ff;
+      cursor: pointer;
+      border: none;
+      box-shadow: 0 0 8px rgba(0, 217, 255, 0.6);
+    }
+
+    .value-display {
+      font-size: 12px;
+      color: #00d9ff;
+      min-width: 30px;
+      text-align: right;
+    }
+
+    /* === BUTTONS === */
+    .add-layer-btn {
+      width: 100%;
+      padding: 12px;
+      background: linear-gradient(135deg, #ff006e, #ff4466);
+      border: none;
+      color: #fff;
+      font-weight: 600;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.3s;
+      font-size: 13px;
+      text-transform: uppercase;
+    }
+
+    .add-layer-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 5px 20px rgba(255, 0, 110, 0.4);
+    }
+
+    /* === SCROLLBAR === */
+    ::-webkit-scrollbar {
+      width: 8px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: rgba(0, 217, 255, 0.3);
+      border-radius: 4px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(0, 217, 255, 0.6);
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- PANEL DE PRESETS -->
+    <div class="presets-panel">
+      <h2>📌 Presets</h2>
+      <div class="presets-list" id="presetsList"></div>
+      <button class="save-preset-btn" id="savePresetBtn">+ Guardar Preset</button>
+    </div>
+
+    <!-- PANEL PRINCIPAL -->
+    <div class="main-panel">
+      <div class="header">
+        <h1>🎨 ATRACTOR</h1>
+        <p>Editor de Efectos Visuales Interactivos v2.0</p>
+      </div>
+
+      <!-- DETECCIÓN DE MANO -->
+      <div class="hand-detection-section">
+        <h3>🖐️ Detección de Mano</h3>
+        <canvas id="webcamCanvas"></canvas>
+        <div class="hand-status" id="handStatus">Inicializando cámara...</div>
+      </div>
+
+      <!-- CONTROL DE CAPAS -->
+      <div class="layers-section">
+        <h3>📊 Capas</h3>
+        <div id="layersContainer"></div>
+        <button class="add-layer-btn" id="addLayerBtn">+ Agregar Capa</button>
+      </div>
+
+      <!-- CONTROL DEL ATRACTOR -->
+      <div class="attractor-control">
+        <h3>⚡ Control del Atractor</h3>
+        <div class="slider-group">
+          <label>Fuerza:</label>
+          <input type="range" id="attractorStrength" min="0" max="1" step="0.1" value="0.8">
+          <span class="value-display" id="strengthValue">0.8</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="hand-detection.js"></script>
+  <script src="control-panel.js"></script>
+</body>
+</html>
