@@ -273,6 +273,30 @@ class FlowFieldEffect {
 // ---------------------------------------------------------------------------
 // 4) FUEGO — las llamas se inclinan y viajan hacia la mano
 // ---------------------------------------------------------------------------
+// Paleta de fuego a partir de 3 colores (centro → medio → puntas → casi negro).
+function fireGradient(p) {
+  const core = hexToRgb(p.colorCore || "#ffffc8");
+  const mid = hexToRgb(p.colorMid || "#ffaa28");
+  const tip = hexToRgb(p.colorTip || "#e63c14");
+  const dark = { r: Math.round(tip.r * 0.17), g: Math.round(tip.g * 0.17), b: Math.round(tip.b * 0.17) };
+  const stops = [{ t: 1, c: core }, { t: 0.6, c: mid }, { t: 0.3, c: tip }, { t: 0, c: dark }];
+  const lut = [];
+  for (let i = 0; i <= 32; i++) {
+    const r = i / 32;
+    let c = core;
+    for (let j = 0; j < stops.length - 1; j++) {
+      const a = stops[j], b = stops[j + 1];
+      if (r <= a.t && r >= b.t) {
+        const k = (r - b.t) / (a.t - b.t || 1);
+        c = { r: Math.round(b.c.r + (a.c.r - b.c.r) * k), g: Math.round(b.c.g + (a.c.g - b.c.g) * k), b: Math.round(b.c.b + (a.c.b - b.c.b) * k) };
+        break;
+      }
+    }
+    lut.push("rgb(" + c.r + "," + c.g + "," + c.b + ")");
+  }
+  return lut;
+}
+
 class FireEffect {
   constructor() { this.particles = []; }
   spawn(w, h, p) {
@@ -308,11 +332,14 @@ class FireEffect {
     }
   }
   draw(ctx, w, h, p) {
+    const key = (p.colorCore || "") + (p.colorMid || "") + (p.colorTip || "");
+    if (key !== this.lutKey) { this.lutKey = key; this.lut = fireGradient(p); }
+    const lut = this.lut;
     ctx.globalCompositeOperation = "lighter";
     for (const particle of this.particles) {
       const lifeRatio = 1 - particle.age / particle.life;
       if (lifeRatio <= 0) continue;
-      ctx.fillStyle = fireColor(lifeRatio);
+      ctx.fillStyle = lut[Math.max(0, Math.min(32, Math.round(lifeRatio * 32)))];
       ctx.globalAlpha = Math.max(0, Math.min(1, lifeRatio * 1.3));
       ctx.beginPath();
       ctx.arc(particle.x, particle.y, Math.max(0.5, p.size * lifeRatio), 0, Math.PI * 2);

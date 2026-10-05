@@ -53,7 +53,10 @@
       { key: "size", label: "Tamaño de partícula", type: "range", min: 2, max: 32, step: 1, default: 15 },
       { key: "baseX", label: "Posición X (%)", type: "range", min: 0, max: 100, step: 1, default: 50 },
       { key: "baseY", label: "Posición base Y (%)", type: "range", min: 0, max: 100, step: 1, default: 100 },
-      ATTRACT
+      ATTRACT,
+      { key: "colorCore", label: "Color del centro", type: "color", default: "#ffffc8" },
+      { key: "colorMid", label: "Color medio", type: "color", default: "#ffaa28" },
+      { key: "colorTip", label: "Color de las puntas", type: "color", default: "#e63c14" }
     ],
     water: [
       { key: "waveCount", label: "Cantidad de olas", type: "range", min: 1, max: 6, step: 1, default: 3 },
