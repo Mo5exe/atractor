@@ -1,189 +1,76 @@
-# 🎨 ATRACTOR v2.0
+# Atractor — Editor de Efectos Visuales v2
 
-Editor de efectos visuales en tiempo real con detección de mano y sistema atractor.
+Editor de efectos visuales en tiempo real para proyectar en una pared.
+La cámara detecta la mano y **todos los efectos convergen hacia ella**. Cada vez
+que la mano toca, **aparece una palabra** de los trending topics de X (vía trends24.in).
 
-## Características
+Basado en [AppEfectos](https://github.com/Mo5exe/AppEfectos) (v1).
 
-### ✨ Nueva v2.0
-- **Detección de Mano con Webcam** — Usando MediaPipe para detectar la posición de tu mano en tiempo real
-- **Efecto Atractor** — Todas las partículas y líneas se atraen hacia donde esté tu mano
-- **Sistema de Presets** — Guarda y carga configuraciones completas de efectos
-- **UI Mejorada** — Panel lateral con presets, panel central con controles
-- **Arquitectura lista para LIDAR** — Fácil de cambiar detección de webcam a sensor LIDAR
+## Cómo usarlo (Windows)
 
-### 🎬 Efectos Visuales
-- **Partículas** — Sistema configurable con velocidad, tamaño, gravedad, color
-- **Árbol Fractal** — Árbol generado recursivamente con balanceo tipo viento
-- **Flow Field** — Partículas guiadas por ruido Perlin
-- **Fuego** — Simulación de partículas ascendentes con gradé de color
-- **Agua** — Olas animadas con múltiples capas
+1. Instalá [Node.js](https://nodejs.org) (versión LTS), si no lo tenés.
+2. Hacé **doble clic en `run.bat`**.
+   - La primera vez instala lo necesario y baja el modelo de detección de manos.
+   - Inicia `node server.js` y abre el panel en una pestaña nueva de Google Chrome.
+3. En el panel apretá **"Abrir salida visual ↗"** y llevá esa ventana al proyector
+   (doble clic en la salida = pantalla completa).
+4. Apretá **"Activar cámara"** y permití el uso de la cámara.
 
-## Instalación y Uso
+Para bajar una versión nueva: doble clic en **`actualizar.bat`** (no borra tus presets).
 
-### Requisitos
-- Node.js (versión 14+)
-- Navegador moderno con soporte WebRTC
+## Qué tiene
 
-### Instalación
+**Efectos (capas)**: Partículas · Árbol Fractal · Flow Field (campo de vectores) ·
+Fuego · Agua · **Palabras Trending**.
 
-```bash
-# Clonar o descargar el repo
-cd atractor
+- Cada capa tiene sus propios sliders, punto de origen (arrastrable), rotación de 45°,
+  activar/desactivar, subir/bajar y eliminar.
+- Cada capa tiene **"Atracción a la mano"** (0 = la ignora, 1 = máximo).
 
-# Instalar dependencias (una sola vez)
-npm install
+**Atractor (mano)**
+- Partículas y fuego viajan hacia la mano · las líneas del flow field se curvan hacia
+  ella · las ramas del árbol se doblan hacia la mano · el agua sube hacia la mano.
+- Fuerza y radio de acción globales. Hasta 2 manos.
+- Punto de la mano: palma o punta del índice. Opción de espejar la cámara.
 
-# Iniciar el servidor
-npm start
-```
+**Palabras Trending**
+- Al tocar aparece una palabra en ese lugar; si la mano se queda, aparece otra cada
+  N segundos. Las más populares salen más grandes y más seguido, y crecen si la mano
+  está cerca.
+- País: Mundial, Argentina, España, México, Chile, Colombia, EE.UU.
+  Se actualiza cada 3 minutos. Sin internet usa palabras de respaldo.
 
-En Windows, también podés hacer doble clic en `run.bat` (si existe).
+**Presets**: guardá la escena completa (capas y ajustes) con un nombre, y cargala con
+un clic desde la barra lateral. Se guardan en `data/presets.json`.
 
-### Acceso
+## Probar sin cámara
 
-Con el servidor corriendo:
+En la ventana de salida, **mantené el clic y mové el mouse**: funciona como la mano.
 
-- **Panel de Control**: http://localhost:3000/index.html
-- **Salida Visual**: http://localhost:3000/output.html
+## Una sola pantalla
 
-Abrí ambas en diferentes pantallas/ventanas:
-- Control en tu monitor principal
-- Output en una segunda pantalla o proyector
+El navegador pausa la cámara si la ventana del panel queda tapada. Si usás una sola
+pantalla, abrí la salida con cámara propia: `http://localhost:3000/output.html?camara=1`
 
-## Flujo de Trabajo
-
-### 1. Configurar Efectos
-
-En el **Panel de Control**:
-
-1. Haz clic en **"+ Agregar Capa"** para crear un nuevo efecto
-2. Selecciona el tipo de efecto (Partículas, Árbol Fractal, etc.)
-3. Haz clic en **⚙️** para ajustar parámetros
-4. Los cambios se sincronizan en vivo en la **Salida Visual**
-
-### 2. Controlar con la Mano
-
-1. **Habilita la cámara** — Aparecerá un preview en el panel de control
-2. **Coloca tu mano frente a la cámara** — Verás un círculo pulsante en la salida
-3. **Mueve tu mano** — Las partículas se atraen hacia donde está tu mano
-4. **Ajusta la Fuerza del Atractor** — Usa el slider para cambiar la intensidad
-
-### 3. Guardar Presets
-
-1. Crea una configuración de efectos que te guste
-2. Haz clic en **"+ Guardar Preset"**
-3. Dale un nombre descriptivo (ej: "Flujo Oscuro", "Fuego Caótico")
-4. Los presets se guardan automáticamente en `data/presets.json`
-
-Para cargar un preset, simplemente haz clic en su nombre en el panel lateral.
-
-## Arquitectura
+## Estructura
 
 ```
-atractor/
-├── server.js               # Servidor Express + Socket.IO
-├── public/
-│   ├── index.html         # Panel de Control
-│   ├── output.html        # Salida Visual
-│   ├── hand-detection.js  # Detección de mano (MediaPipe)
-│   ├── control-panel.js   # Lógica del panel de control
-│   ├── effects-engine.js  # Motor de efectos visuales
-│   └── output.js          # Lógica de salida
-└── data/
-    └── presets.json       # Presets guardados
+server.js              servidor (Express + Socket.IO): estado, presets, trends
+trending-scraper.js    lee trends24.in
+run.bat                inicia todo (doble clic)
+actualizar.bat         baja la última versión de GitHub
+public/
+  index.html           panel de control
+  output.html          salida visual (sólo la imagen)
+  style.css
+  js/schemas.js        parámetros de cada efecto (compartido con el servidor)
+  js/effects.js        los 6 efectos + atractor
+  js/output.js         dibuja las capas en la salida
+  js/control.js        panel de control
+  js/hands.js          detección de manos (MediaPipe)
+  js/control-camera.js cámara en el panel
+  js/output-camera.js  cámara en la salida (?camara=1)
 ```
 
-### Flujo de Datos (WebSockets)
-
-```
-Control Panel <--> Socket.IO Server <--> Output
-     ↓                                        ↓
-Hand Detection (Webcam)              Effects Engine
-     ↓                                        ↓
-Position Updates                    Visual Rendering
-```
-
-## Próximas Mejoras (Roadmap)
-
-- [ ] Integración con sensor LIDAR
-- [ ] Soporte para OSC (Open Sound Control)
-- [ ] Exportar videos de salida
-- [ ] Más tipos de efectos (lluvia, nubes, fractales 3D)
-- [ ] Interfaz MIDI para controles externos
-- [ ] Visualización de espectro de audio
-
-## Cambiar de Webcam a LIDAR
-
-Para migrar a un sensor LIDAR (en el futuro):
-
-1. En `public/hand-detection.js`, reemplaza `setupFallbackHandDetection()` con tu código LIDAR
-2. El resto del sistema sigue igual — solo cambia la fuente de posición
-3. Socket.io seguirá enviando `handPosition` events normalmente
-
-Ejemplo:
-
-```javascript
-// En hand-detection.js
-async function initializeHandDetection() {
-  // Cambiar: setupFallbackHandDetection() →
-  initializeLIDARSensor();
-}
-
-function initializeLIDARSensor() {
-  // Tu código de LIDAR aquí
-  // Sigue emitiendo: socket.emit('handPosition', { x, y, detected })
-}
-```
-
-## Notas Técnicas
-
-### Performance
-
-- La detección de mano corre en tiempo real (~30 FPS)
-- Los efectos están optimizados para resoluciones 4K
-- WebGL podría agregarse en el futuro para mejor performance
-
-### Persistencia
-
-- Los presets se guardan en `data/presets.json`
-- Se cargan automáticamente al iniciar el servidor
-- Se pueden editar manualmente o vía API en el futuro
-
-### Detección de Mano
-
-Por defecto usa **MediaPipe**, con fallback a detección de movimiento simple si no está disponible.
-
-- MediaPipe: Más preciso, requiere conexión a CDN
-- Fallback: Detecta el centro de masa de movimiento en cámara
-
-## Troubleshooting
-
-### La cámara no se abre
-- Verifica permisos en tu navegador (Settings → Privacy)
-- Asegúrate de que la cámara no está en uso en otra app
-
-### Los efectos no se ven
-- Verifica que las capas estén **habilitadas** (👁️ ON)
-- Abre la consola del navegador (F12) y revisa errores
-- Intenta refrescar la página (F5)
-
-### Baja performance
-- Reduce la cantidad de partículas en los parámetros de las capas
-- Cierra otras apps pesadas
-- Prueba con resolución menor
-
-## Créditos
-
-- **MediaPipe** para detección de mano
-- **Socket.IO** para comunicación en tiempo real
-- **Express.js** para el servidor
-
-## Licencia
-
-MIT - Libre para usar, modificar y distribuir
-
----
-
-💡 **Idea**: Combina esto con TouchDesigner o LIDAR para instalaciones interactivas aún más sofisticadas.
-
-🎨 Creado para explorar visualidades poshumanistas y post-naturales.
+Pensado para cambiar después la cámara por un sensor LIDAR: sólo hay que mandar
+`socket.emit("hands", { hands: [{ x, y }] })` con posiciones de 0 a 1.

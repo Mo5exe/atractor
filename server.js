@@ -1,162 +1,321 @@
-const express = require('express');
-const http = require('http');
-const socketIO = require('socket.io');
-const path = require('path');
-const trendingScraper = require('./trending-scraper');
+/*
+ * Atractor — servidor del Editor de Efectos Visuales v2.
+ *
+ * - Sirve /public (index.html = panel de control, output.html = salida visual).
+ * - Mantiene el estado autoritativo: capas de efectos + ajustes globales.
+ * - Reenvía en vivo la posición de la(s) mano(s) detectadas por la cámara.
+ * - Guarda presets en data/presets.json.
+ * - Trae trending topics de trends24.in cada 3 minutos.
+ */
+"use strict";
+
+const express = require("express");
+const http = require("http");
+const path = require("path");
+const fs = require("fs");
+const { randomUUID } = require("crypto");
+const { Server } = require("socket.io");
+
+const { SCHEMAS, NAMES, DEFAULT_SETTINGS } = require("./public/js/schemas.js");
+const { getTrends } = require("./trending-scraper.js");
 
 const app = express();
 const server = http.createServer(app);
-const io = socketIO(server, {
-  cors: {
-    origin: "*",
-    methods: ["GET", "POST"]
-  }
-});
+const io = new Server(server);
 
-app.use(express.static('public'));
-app.use(express.json());
+app.use(express.static(path.join(__dirname, "public")));
+// MediaPipe se sirve desde node_modules para no depender de un CDN.
+app.use("/mediapipe", express.static(path.join(__dirname, "node_modules", "@mediapipe", "tasks-vision")));
 
-// === RUTAS API ===
-app.get('/api/trends', async (req, res) => {
-  try {
-    const country = req.query.country || 'global';
-    const trends = await trendingScraper.getTrends(country);
-    res.json({ success: true, trends });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// Almacenar estado global de la aplicación
-let appState = {
-  layers: [],
-  presets: [],
-  handPosition: { x: 0, y: 0, detected: false },
-  attractorStrength: 0.8
+// ---------------------------------------------------------------------------
+// Estado
+// ---------------------------------------------------------------------------
+let state = {
+  layers: [], // { id, type, name, enabled, params, transform }
+  settings: Object.assign({}, DEFAULT_SETTINGS)
 };
 
-// Cargar presets guardados desde archivo (en producción usar DB)
-const fs = require('fs');
-const PRESETS_FILE = path.join(__dirname, 'data', 'presets.json');
+const ROTATE_STEP = 45;
+
+function defaultParams(type) {
+  const params = {};
+  (SCHEMAS[type] || []).forEach((def) => { params[def.key] = def.default; });
+  return params;
+}
+
+function createLayer(type) {
+  if (!SCHEMAS[type]) throw new Error("Tipo de efecto desconocido: " + type);
+  return {
+    id: randomUUID(),
+    type,
+    name: NAMES[type] || type,
+    enabled: true,
+    params: defaultParams(type),
+    transform: { originX: 50, originY: 50, rotation: 0 }
+  };
+}
+
+// Completa parámetros que falten (por ejemplo, presets guardados con una
+// versión anterior) para que nada quede "undefined" en la salida.
+function normalizeLayer(layer) {
+  if (!layer || !SCHEMAS[layer.type]) return null;
+  return {
+    id: layer.id || randomUUID(),
+    type: layer.type,
+    name: layer.name || NAMES[layer.type],
+    enabled: layer.enabled !== false,
+    params: Object.assign(defaultParams(layer.type), layer.params || {}),
+    transform: Object.assign({ originX: 50, originY: 50, rotation: 0 }, layer.transform || {})
+  };
+}
+
+function clampPercent(n) {
+  const num = Number(n);
+  if (Number.isNaN(num)) return 50;
+  return Math.max(0, Math.min(100, num));
+}
+
+function broadcastState() {
+  io.emit("state", state);
+}
+
+// ---------------------------------------------------------------------------
+// Presets
+// ---------------------------------------------------------------------------
+const DATA_DIR = path.join(__dirname, "data");
+const PRESETS_FILE = path.join(DATA_DIR, "presets.json");
+let presets = [];
 
 function loadPresets() {
   try {
     if (fs.existsSync(PRESETS_FILE)) {
-      const data = fs.readFileSync(PRESETS_FILE, 'utf-8');
-      appState.presets = JSON.parse(data);
+      presets = JSON.parse(fs.readFileSync(PRESETS_FILE, "utf-8"));
+      if (!Array.isArray(presets)) presets = [];
     }
   } catch (err) {
-    console.error('Error loading presets:', err);
-    appState.presets = [];
+    console.error("No se pudieron leer los presets:", err.message);
+    presets = [];
   }
 }
 
 function savePresets() {
   try {
-    const dir = path.dirname(PRESETS_FILE);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-    fs.writeFileSync(PRESETS_FILE, JSON.stringify(appState.presets, null, 2));
+    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.writeFileSync(PRESETS_FILE, JSON.stringify(presets, null, 2));
   } catch (err) {
-    console.error('Error saving presets:', err);
+    console.error("No se pudieron guardar los presets:", err.message);
   }
+}
+
+function presetSummaries() {
+  return presets.map((p) => ({
+    id: p.id,
+    name: p.name,
+    createdAt: p.createdAt,
+    layerCount: (p.layers || []).length,
+    types: (p.layers || []).map((l) => NAMES[l.type] || l.type)
+  }));
 }
 
 loadPresets();
 
-// WebSocket eventos
-io.on('connection', (socket) => {
-  console.log('Cliente conectado:', socket.id);
+// ---------------------------------------------------------------------------
+// Trending topics
+// ---------------------------------------------------------------------------
+let trendsInfo = { trends: [], source: "cargando", fetchedAt: 0, country: state.settings.trendsCountry };
 
-  // Enviar estado inicial
-  socket.emit('init', {
-    layers: appState.layers,
-    presets: appState.presets,
-    handPosition: appState.handPosition,
-    attractorStrength: appState.attractorStrength
-  });
+async function refreshTrends() {
+  const country = state.settings.trendsCountry;
+  const result = await getTrends(country);
+  // Si mientras tanto cambiaron de país, descartar este resultado.
+  if (country !== state.settings.trendsCountry) return;
+  trendsInfo = Object.assign({ country }, result);
+  io.emit("trends", trendsInfo);
+}
 
-  // Recibir actualizaciones de capas
-  socket.on('updateLayers', (layers) => {
-    appState.layers = layers;
-    socket.broadcast.emit('updateLayers', layers);
-  });
+refreshTrends();
+setInterval(refreshTrends, 3 * 60 * 1000);
 
-  // Recibir posición de la mano (desde hand detection)
-  socket.on('handPosition', (position) => {
-    appState.handPosition = position;
-    socket.broadcast.emit('handPosition', position);
-  });
+// ---------------------------------------------------------------------------
+// Sockets
+// ---------------------------------------------------------------------------
+io.on("connection", (socket) => {
+  socket.emit("state", state);
+  socket.emit("presets", presetSummaries());
+  socket.emit("trends", trendsInfo);
 
-  // Actualizar fuerza del atractor
-  socket.on('attractorStrength', (strength) => {
-    appState.attractorStrength = strength;
-    socket.broadcast.emit('attractorStrength', strength);
-  });
-
-  // Guardar preset
-  socket.on('savePreset', ({ name, config }) => {
-    const preset = {
-      id: Date.now().toString(),
-      name: name,
-      timestamp: new Date().toISOString(),
-      config: config
-    };
-    appState.presets.push(preset);
-    savePresets();
-    io.emit('presetsUpdated', appState.presets);
-  });
-
-  // Cargar preset
-  socket.on('loadPreset', (presetId) => {
-    const preset = appState.presets.find(p => p.id === presetId);
-    if (preset) {
-      appState.layers = preset.config.layers;
-      appState.attractorStrength = preset.config.attractorStrength || 0.8;
-      io.emit('presetLoaded', {
-        layers: appState.layers,
-        attractorStrength: appState.attractorStrength
-      });
-    }
-  });
-
-  // Eliminar preset
-  socket.on('deletePreset', (presetId) => {
-    appState.presets = appState.presets.filter(p => p.id !== presetId);
-    savePresets();
-    io.emit('presetsUpdated', appState.presets);
-  });
-
-  // Obtener trending topics
-  socket.on('getTrends', async (country = 'global') => {
+  socket.on("add-layer", (type) => {
     try {
-      const trends = await trendingScraper.getTrends(country);
-      socket.emit('trendsUpdated', trends);
-    } catch (error) {
-      console.error('Error obteniendo trends:', error);
-      socket.emit('trendsUpdated', trendingScraper.getFallbackTrends());
+      state.layers.push(createLayer(type));
+      broadcastState();
+    } catch (err) {
+      socket.emit("error-message", err.message);
     }
   });
 
-  socket.on('disconnect', () => {
-    console.log('Cliente desconectado:', socket.id);
+  socket.on("remove-layer", (id) => {
+    state.layers = state.layers.filter((l) => l.id !== id);
+    broadcastState();
+  });
+
+  socket.on("toggle-layer", (id) => {
+    const layer = state.layers.find((l) => l.id === id);
+    if (layer) {
+      layer.enabled = !layer.enabled;
+      broadcastState();
+    }
+  });
+
+  socket.on("reorder-layer", (payload) => {
+    const { id, direction } = payload || {};
+    const idx = state.layers.findIndex((l) => l.id === id);
+    if (idx === -1) return;
+    const newIdx = direction === "up" ? idx - 1 : idx + 1;
+    if (newIdx < 0 || newIdx >= state.layers.length) return;
+    const [layer] = state.layers.splice(idx, 1);
+    state.layers.splice(newIdx, 0, layer);
+    broadcastState();
+  });
+
+  socket.on("update-param", (payload) => {
+    const { id, key, value } = payload || {};
+    const layer = state.layers.find((l) => l.id === id);
+    if (layer && Object.prototype.hasOwnProperty.call(layer.params, key)) {
+      layer.params[key] = value;
+      broadcastState();
+    }
+  });
+
+  socket.on("clear-layers", () => {
+    state.layers = [];
+    broadcastState();
+  });
+
+  socket.on("update-origin", (payload) => {
+    const { id, x, y } = payload || {};
+    const layer = state.layers.find((l) => l.id === id);
+    if (layer) {
+      layer.transform.originX = clampPercent(x);
+      layer.transform.originY = clampPercent(y);
+      broadcastState();
+    }
+  });
+
+  socket.on("rotate-layer", (id) => {
+    const layer = state.layers.find((l) => l.id === id);
+    if (layer) {
+      layer.transform.rotation = (layer.transform.rotation + ROTATE_STEP) % 360;
+      broadcastState();
+    }
+  });
+
+  socket.on("update-setting", (payload) => {
+    const { key, value } = payload || {};
+    if (!Object.prototype.hasOwnProperty.call(DEFAULT_SETTINGS, key)) return;
+    const changedCountry = key === "trendsCountry" && value !== state.settings.trendsCountry;
+    state.settings[key] = value;
+    broadcastState();
+    if (changedCountry) {
+      trendsInfo = { trends: trendsInfo.trends, source: "cargando", fetchedAt: 0, country: value };
+      io.emit("trends", trendsInfo);
+      refreshTrends();
+    }
+  });
+
+  socket.on("refresh-trends", () => refreshTrends());
+
+  // Posición de las manos (normalizada 0..1). Sólo se reenvía, no se guarda.
+  socket.on("hands", (payload) => {
+    socket.broadcast.volatile.emit("hands", payload);
+  });
+
+  // --- Presets ---
+  socket.on("save-preset", (name) => {
+    const clean = String(name || "").trim().slice(0, 60);
+    if (!clean) return;
+    presets.push({
+      id: randomUUID(),
+      name: clean,
+      createdAt: new Date().toISOString(),
+      layers: JSON.parse(JSON.stringify(state.layers)),
+      settings: Object.assign({}, state.settings)
+    });
+    savePresets();
+    io.emit("presets", presetSummaries());
+  });
+
+  socket.on("load-preset", (id) => {
+    const preset = presets.find((p) => p.id === id);
+    if (!preset) return;
+    state.layers = (preset.layers || []).map(normalizeLayer).filter(Boolean);
+    const prevCountry = state.settings.trendsCountry;
+    state.settings = Object.assign({}, DEFAULT_SETTINGS, preset.settings || {});
+    broadcastState();
+    io.emit("preset-loaded", id);
+    if (state.settings.trendsCountry !== prevCountry) refreshTrends();
+  });
+
+  socket.on("rename-preset", (payload) => {
+    const { id, name } = payload || {};
+    const preset = presets.find((p) => p.id === id);
+    const clean = String(name || "").trim().slice(0, 60);
+    if (!preset || !clean) return;
+    preset.name = clean;
+    savePresets();
+    io.emit("presets", presetSummaries());
+  });
+
+  socket.on("delete-preset", (id) => {
+    presets = presets.filter((p) => p.id !== id);
+    savePresets();
+    io.emit("presets", presetSummaries());
   });
 });
 
-// === ACTUALIZAR TRENDS PERIÓDICAMENTE ===
-setInterval(async () => {
-  try {
-    const trends = await trendingScraper.getTrends('global');
-    io.emit('trendsUpdated', trends);
-  } catch (error) {
-    console.error('Error updating trends:', error);
-  }
-}, 3 * 60 * 1000); // Cada 3 minutos
-
+// ---------------------------------------------------------------------------
+// Arranque. Si lo lanza run.bat (ABRIR_NAVEGADOR=1), abre el panel en una
+// pestaña nueva de Google Chrome (o en el navegador predeterminado si no hay Chrome).
+// ---------------------------------------------------------------------------
 const PORT = process.env.PORT || 3000;
+const PANEL_URL = "http://localhost:" + PORT + "/index.html";
+
+function openBrowser(url) {
+  if (process.env.ABRIR_NAVEGADOR !== "1") return;
+  const { spawn, exec } = require("child_process");
+  const chrome = process.env.CHROME_PATH;
+  try {
+    if (chrome && fs.existsSync(chrome)) {
+      spawn(chrome, ["--new-tab", url], { detached: true, stdio: "ignore" }).unref();
+    } else if (process.platform === "win32") {
+      exec('start "" "' + url + '"');
+    } else if (process.platform === "darwin") {
+      exec('open "' + url + '"');
+    } else {
+      exec('xdg-open "' + url + '"');
+    }
+  } catch (err) {
+    console.log("Abrí a mano: " + url);
+  }
+}
+
+server.on("error", (err) => {
+  if (err.code === "EADDRINUSE") {
+    console.log("");
+    console.log("Atractor ya estaba abierto en otra ventana. Abro el panel en el navegador.");
+    console.log("(Si querés reiniciarlo, cerrá la otra ventana negra primero.)");
+    openBrowser(PANEL_URL);
+    setTimeout(() => process.exit(0), 1500);
+  } else {
+    throw err;
+  }
+});
+
 server.listen(PORT, () => {
-  console.log(`🎨 AppEfectos v2 corriendo en http://localhost:${PORT}`);
-  console.log(`   Panel de control: http://localhost:${PORT}/index.html`);
-  console.log(`   Salida visual: http://localhost:${PORT}/output.html`);
+  console.log("");
+  console.log("=== ATRACTOR - Editor de Efectos Visuales v2 ===");
+  console.log("Panel de control:  " + PANEL_URL);
+  console.log("Salida visual:     http://localhost:" + PORT + "/output.html");
+  console.log("(Para cerrar: cerrá esta ventana o apretá Ctrl + C)");
+  console.log("");
+  openBrowser(PANEL_URL);
 });

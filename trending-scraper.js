@@ -1,146 +1,147 @@
-// Scraper de Trending Topics desde Trends24
-const https = require('https');
-const { JSDOM } = require('jsdom');
+/*
+ * Scraper de trending topics de X/Twitter desde trends24.in
+ *
+ * getTrends(country) -> Promise<[{ word, rank, count, popularity }]>
+ *   country: "" (mundial), "argentina", "spain", "mexico", ...
+ *
+ * - Toma sólo la tarjeta más reciente (la primera hora que muestra la página).
+ * - popularity va de 0 a 1 (1 = el más popular). Si la página trae la
+ *   cantidad de posts se usa eso; si no, se calcula por el puesto.
+ * - Cachea 3 minutos por país. Si falla, devuelve lo último que funcionó o
+ *   una lista de respaldo, así la instalación nunca se queda sin palabras.
+ */
+"use strict";
 
-class TrendingScraper {
-  constructor() {
-    this.cache = [];
-    this.lastUpdate = 0;
-    this.updateInterval = 2 * 60 * 1000; // 2 minutos
+const CACHE_MS = 3 * 60 * 1000;
+const MAX_TRENDS = 30;
+
+const FALLBACK_WORDS = [
+  "Inteligencia Artificial", "Posthumano", "Ecología", "Algoritmo", "Datos",
+  "Futuro", "Clima", "Redes", "Cuerpo", "Máquina", "Memoria", "Territorio",
+  "Imagen", "Pantalla", "Código", "Naturaleza", "Archivo", "Ruido"
+];
+
+const cache = new Map(); // country -> { at, trends }
+
+function decodeEntities(str) {
+  return String(str)
+    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCodePoint(parseInt(n, 16)))
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;|&#39;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&");
+}
+
+function stripTags(str) {
+  return String(str).replace(/<[^>]*>/g, "");
+}
+
+function parseCount(text) {
+  if (!text) return 0;
+  const m = String(text).replace(/,/g, "").match(/([\d.]+)\s*([KkMm])?/);
+  if (!m) return 0;
+  let n = parseFloat(m[1]);
+  if (m[2] && /k/i.test(m[2])) n *= 1000;
+  if (m[2] && /m/i.test(m[2])) n *= 1000000;
+  return Math.round(n);
+}
+
+/**
+ * Extrae los trends del HTML de trends24. Exportada para poder probarla.
+ */
+function parseTrends24(html) {
+  // Quedarse con la primera lista (la hora más reciente).
+  let section = html;
+  const firstList = html.search(/<ol[^>]*class="[^"]*trend-card__list[^"]*"/i);
+  if (firstList !== -1) {
+    const end = html.indexOf("</ol>", firstList);
+    section = html.slice(firstList, end === -1 ? undefined : end);
   }
 
-  /**
-   * Scrapeea Trends24 para obtener trending topics
-   * @param {string} country - Código de país (ej: 'ar' para Argentina, 'global')
-   * @returns {Promise<Array>} Array de objetos {word, rank, count}
-   */
-  async getTrends(country = 'global') {
-    const now = Date.now();
+  const trends = [];
+  const seen = new Set();
+  const liRe = /<li[^>]*>([\s\S]*?)<\/li>/gi;
+  let li;
+  while ((li = liRe.exec(section)) && trends.length < MAX_TRENDS) {
+    const block = li[1];
+    const link = block.match(/<a[^>]*class="[^"]*trend-link[^"]*"[^>]*>([\s\S]*?)<\/a>/i) ||
+                 block.match(/<a[^>]*>([\s\S]*?)<\/a>/i);
+    if (!link) continue;
+    const word = decodeEntities(stripTags(link[1])).trim();
+    if (!word || word.length > 60) continue;
+    const key = word.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
 
-    // Si el cache es fresco, devolver cache
-    if (this.cache.length > 0 && (now - this.lastUpdate) < this.updateInterval) {
-      console.log('📦 Usando cache de trending');
-      return this.cache;
+    let count = 0;
+    const dataCount = block.match(/data-count="(\d+)"/i);
+    if (dataCount) count = Number(dataCount[1]);
+    else {
+      const countSpan = block.match(/class="[^"]*tweet-count[^"]*"[^>]*>([\s\S]*?)<\/span>/i);
+      if (countSpan) count = parseCount(stripTags(countSpan[1]));
     }
-
-    console.log(`🕷️ Scrapeando trending topics (${country})...`);
-
-    try {
-      const trends = await this.scrapeFromTrends24(country);
-      this.cache = trends;
-      this.lastUpdate = now;
-      console.log(`✓ ${trends.length} trending topics obtenidos`);
-      return trends;
-    } catch (error) {
-      console.error('Error scrapeando:', error);
-      // Si hay error, devolver cache aunque esté viejo
-      if (this.cache.length > 0) {
-        console.log('⚠️ Usando cache antiguo');
-        return this.cache;
-      }
-      // Fallback: trending genérico
-      return this.getFallbackTrends();
-    }
+    trends.push({ word, rank: trends.length + 1, count });
   }
 
-  async scrapeFromTrends24(country = 'global') {
-    return new Promise((resolve, reject) => {
-      let url = 'https://trends24.in/';
+  return withPopularity(trends);
+}
 
-      // Agregar código de país si no es global
-      if (country !== 'global') {
-        url += country + '/';
-      }
+function withPopularity(trends) {
+  const maxCount = Math.max(0, ...trends.map((t) => t.count || 0));
+  const n = trends.length || 1;
+  return trends.map((t, i) => {
+    const byRank = 1 - i / n;
+    const byCount = maxCount > 0 && t.count > 0 ? t.count / maxCount : byRank;
+    // Mezcla: el puesto siempre pesa algo para que no queden todos iguales.
+    const popularity = Math.max(0.05, Math.min(1, 0.5 * byRank + 0.5 * byCount));
+    return { word: t.word, rank: i + 1, count: t.count || 0, popularity };
+  });
+}
 
-      const options = {
-        hostname: 'trends24.in',
-        path: country === 'global' ? '/' : `/${country}/`,
-        method: 'GET',
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        }
-      };
+function fallbackTrends() {
+  return withPopularity(FALLBACK_WORDS.map((word) => ({ word, count: 0 })));
+}
 
-      https.get(options, (res) => {
-        let data = '';
+async function fetchHtml(url) {
+  const res = await fetch(url, {
+    headers: {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+      "Accept": "text/html",
+      "Accept-Language": "es-AR,es;q=0.9,en;q=0.8"
+    },
+    redirect: "follow",
+    signal: AbortSignal.timeout(12000)
+  });
+  if (!res.ok) throw new Error("HTTP " + res.status);
+  return res.text();
+}
 
-        res.on('data', (chunk) => {
-          data += chunk;
-        });
-
-        res.on('end', () => {
-          try {
-            const trends = this.parseHTML(data);
-            resolve(trends);
-          } catch (error) {
-            reject(error);
-          }
-        });
-      }).on('error', reject);
-    });
+/**
+ * Devuelve { trends, source } donde source es "trends24", "cache" o "respaldo".
+ */
+async function getTrends(country = "") {
+  const slug = String(country || "").replace(/[^a-z-]/gi, "").toLowerCase();
+  const cached = cache.get(slug);
+  if (cached && Date.now() - cached.at < CACHE_MS) {
+    return { trends: cached.trends, source: "trends24", fetchedAt: cached.at };
   }
 
-  parseHTML(html) {
-    const dom = new JSDOM(html);
-    const document = dom.window.document;
-
-    const trends = [];
-    const elements = document.querySelectorAll('.trend-item, .list-item, [class*="trend"]');
-
-    // Si no encuentra con selectores específicos, intenta extrae de divs
-    if (elements.length === 0) {
-      const links = document.querySelectorAll('a[href*="search"]');
-      links.forEach((link, index) => {
-        const text = link.textContent.trim();
-        if (text && text.length > 2 && text.length < 100) {
-          trends.push({
-            word: text,
-            rank: index + 1,
-            count: links.length - index // Simulamos popularidad
-          });
-        }
-      });
-    } else {
-      elements.forEach((el, index) => {
-        const text = el.textContent.trim();
-        if (text && text.length > 2) {
-          trends.push({
-            word: text,
-            rank: index + 1,
-            count: elements.length - index
-          });
-        }
-      });
-    }
-
-    // Limpiar y retornar top 15
-    return trends
-      .filter(t => t.word && !t.word.includes('\n'))
-      .slice(0, 15)
-      .map((t, i) => ({
-        ...t,
-        rank: i + 1,
-        popularity: (15 - i) / 15 // Normalizar 0-1
-      }));
-  }
-
-  /**
-   * Trending genérico de fallback (cuando scraping falla)
-   */
-  getFallbackTrends() {
-    const fallback = [
-      'IA', 'Claude', 'Anthropic', 'GPT', 'OpenAI',
-      'Tecnología', 'Innovation', 'Machine Learning',
-      'Digital Art', 'Transformers', 'Neural Networks'
-    ];
-
-    return fallback.map((word, index) => ({
-      word,
-      rank: index + 1,
-      count: fallback.length - index,
-      popularity: (fallback.length - index) / fallback.length
-    }));
+  const url = "https://trends24.in/" + (slug ? slug + "/" : "");
+  try {
+    const html = await fetchHtml(url);
+    const trends = parseTrends24(html);
+    if (trends.length === 0) throw new Error("no se encontraron trends en la página");
+    cache.set(slug, { at: Date.now(), trends });
+    console.log("[trends] " + trends.length + " palabras de " + url);
+    return { trends, source: "trends24", fetchedAt: Date.now() };
+  } catch (err) {
+    console.warn("[trends] No se pudo leer " + url + ": " + err.message);
+    if (cached) return { trends: cached.trends, source: "cache", fetchedAt: cached.at };
+    return { trends: fallbackTrends(), source: "respaldo", fetchedAt: Date.now() };
   }
 }
 
-module.exports = new TrendingScraper();
+module.exports = { getTrends, parseTrends24, fallbackTrends };

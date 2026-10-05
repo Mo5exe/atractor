@@ -1,61 +1,51 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Atractor - Output</title>
-  <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Atractor — Salida Visual</title>
   <style>
-    * {
+    html, body {
       margin: 0;
       padding: 0;
-      box-sizing: border-box;
-    }
-
-    body {
-      background: #000;
-      overflow: hidden;
-      width: 100vw;
-      height: 100vh;
-    }
-
-    #canvas {
-      display: block;
       width: 100%;
       height: 100%;
+      overflow: hidden;
+      background: #000;
     }
-
-    .hand-indicator {
-      position: absolute;
-      width: 30px;
-      height: 30px;
-      border: 2px solid #00d9ff;
-      border-radius: 50%;
-      pointer-events: none;
-      box-shadow: 0 0 10px rgba(0, 217, 255, 0.6);
-      display: none;
-    }
-
-    .hand-indicator.active {
+    canvas {
       display: block;
-      animation: pulse 0.5s infinite;
+      width: 100vw;
+      height: 100vh;
+      touch-action: none;
+      cursor: crosshair;
     }
-
-    @keyframes pulse {
-      0%, 100% {
-        box-shadow: 0 0 10px rgba(0, 217, 255, 0.6);
-      }
-      50% {
-        box-shadow: 0 0 20px rgba(0, 217, 255, 0.3);
-      }
+    #hint {
+      position: fixed;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      color: #8b93a7;
+      font: 14px "Segoe UI", Roboto, Arial, sans-serif;
+      text-align: center;
+      line-height: 1.6;
+      pointer-events: none;
     }
   </style>
 </head>
 <body>
+  <!--
+    Salida visual pura: sin controles. Todo llega por sockets desde el panel
+    de control (index.html). Pensada para proyectar en la pared.
+    - Doble clic: pantalla completa.
+    - Clic sostenido + mover el mouse: simula la mano (para probar sin cámara).
+  -->
   <canvas id="canvas"></canvas>
-  <div class="hand-indicator" id="handIndicator"></div>
+  <div id="hint">Todavía no hay capas.<br>Agregalas desde el panel de control.<br><br>Doble clic: pantalla completa · Clic y arrastrar: simular la mano</div>
 
-  <script src="effects-engine.js"></script>
-  <script src="output.js"></script>
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="js/effects.js"></script>
+  <script src="js/output.js"></script>
+  <script type="module" src="js/output-camera.js"></script>
 </body>
 </html>
