@@ -71,6 +71,8 @@
       { key: "interval", label: "Espera entre palabras (s)", type: "range", min: 0, max: 5, step: 0.05, default: 0.5 },
       { key: "flySpeed", label: "Velocidad de vuelo", type: "range", min: 0.2, max: 4, step: 0.05, default: 1.2 },
       { key: "flyTime", label: "Duración del vuelo (s)", type: "range", min: 0.3, max: 5, step: 0.05, default: 1.4 },
+      { key: "fadeTo", label: "Transparencia al quedarse", type: "range", min: 0.05, max: 1, step: 0.05, default: 0.4 },
+      { key: "blur", label: "Difuminado (bordes suaves)", type: "range", min: 0, max: 20, step: 0.5, default: 4 },
       { key: "popularityScale", label: "Peso de la popularidad", type: "range", min: 0, max: 1, step: 0.05, default: 0.6 },
       ATTRACT,
       { key: "color", label: "Color", type: "color", default: "#ff3d8b" },
@@ -84,29 +86,51 @@
     flowfield: "Flow Field",
     fire: "Fuego",
     water: "Agua",
-    trending: "Palabras Trending"
+    trending: "Palabras"
   };
 
   // Ajustes globales de la escena (no pertenecen a una capa).
+  // geo: código para Google Trends · wiki: idioma de Wikipedia
   var COUNTRIES = [
-    { id: "", label: "Mundial" },
-    { id: "argentina", label: "Argentina" },
-    { id: "spain", label: "España" },
-    { id: "mexico", label: "México" },
-    { id: "chile", label: "Chile" },
-    { id: "colombia", label: "Colombia" },
-    { id: "united-states", label: "Estados Unidos" }
+    { id: "", label: "Mundial", geo: "US", wiki: "es" },
+    { id: "argentina", label: "Argentina", geo: "AR", wiki: "es" },
+    { id: "spain", label: "España", geo: "ES", wiki: "es" },
+    { id: "mexico", label: "México", geo: "MX", wiki: "es" },
+    { id: "chile", label: "Chile", geo: "CL", wiki: "es" },
+    { id: "colombia", label: "Colombia", geo: "CO", wiki: "es" },
+    { id: "united-states", label: "Estados Unidos", geo: "US", wiki: "en" }
   ];
+
+  // De dónde salen las palabras de la capa "Palabras".
+  var WORD_SOURCES = [
+    { id: "custom", label: "Mis palabras (lista propia)", hint: "Las palabras que escribas abajo, separadas por coma o en renglones." },
+    { id: "wikipedia", label: "Lo más leído en Wikipedia", hint: "Los artículos más visitados ayer: temas del día, personas, lugares, ideas." },
+    { id: "news", label: "Titulares de diarios", hint: "Las palabras que más se repiten hoy en los titulares de los diarios." },
+    { id: "google", label: "Búsquedas en Google", hint: "Lo que más se está buscando en Google ahora." },
+    { id: "trends", label: "Trending de X (Twitter)", hint: "Los trending topics de X, leídos de trends24.in." }
+  ];
+
+  var DEFAULT_CUSTOM_WORDS = [
+    "posthumano", "post-naturaleza", "nuevos materialismos", "ecología", "simbiosis", "micelio",
+    "compost", "raíz", "enjambre", "sedimento", "glaciar", "fósil", "residuo", "metabolismo",
+    "mutación", "cyborg", "especie", "devenir", "ensamblaje", "Antropoceno", "interfaz",
+    "algoritmo", "latencia", "ruido", "umbral", "deriva", "tierra", "agua", "cuerpo", "máquina"
+  ].join(", ");
 
   var DEFAULT_SETTINGS = {
     attractorStrength: 0.8, // 0..1
     attractorRadius: 60,    // % de la diagonal de la pantalla donde actúa la mano
     mirror: true,           // espejar la cámara (como un espejo)
     showCursor: true,       // dibujar un círculo donde está la mano
-    trendsCountry: "argentina"
+    wordSource: "custom",
+    trendsCountry: "argentina",
+    customWords: DEFAULT_CUSTOM_WORDS
   };
 
-  var api = { SCHEMAS: SCHEMAS, NAMES: NAMES, COUNTRIES: COUNTRIES, DEFAULT_SETTINGS: DEFAULT_SETTINGS };
+  var api = {
+    SCHEMAS: SCHEMAS, NAMES: NAMES, COUNTRIES: COUNTRIES, WORD_SOURCES: WORD_SOURCES,
+    DEFAULT_SETTINGS: DEFAULT_SETTINGS, DEFAULT_CUSTOM_WORDS: DEFAULT_CUSTOM_WORDS
+  };
 
   if (typeof module !== "undefined" && module.exports) {
     module.exports = api;

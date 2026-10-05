@@ -77,16 +77,21 @@ async function startCamera() {
   }
 }
 
+function stopCamera(message) {
+  tracker.stop();
+  running = false;
+  camBtn.textContent = "Activar cámara";
+  setStatus(message || "Cámara apagada.", "info");
+  savePref("autostart", "0");
+}
+
+window.stopPanelCamera = () => {
+  if (running) stopCamera("Cámara del panel apagada: ahora la usa la ventana de salida.");
+};
+
 camBtn.addEventListener("click", async () => {
-  if (running) {
-    tracker.stop();
-    running = false;
-    camBtn.textContent = "Activar cámara";
-    setStatus("Cámara apagada.", "info");
-    savePref("autostart", "0");
-  } else {
-    await startCamera();
-  }
+  if (running) stopCamera();
+  else await startCamera();
 });
 
 camSelect.addEventListener("change", async () => {

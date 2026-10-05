@@ -500,3 +500,35 @@ button:disabled {
   .sidebar { position: static; max-height: none; border-right: none; border-bottom: 1px solid var(--border); }
   main { padding: 16px; }
 }
+
+.custom-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.custom-box[hidden], .row[hidden] { display: none; }
+
+.custom-box textarea {
+  width: 100%;
+  resize: vertical;
+  background: var(--panel-alt);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font: 13px/1.5 "Segoe UI", Roboto, Arial, sans-serif;
+}
+
+.custom-box textarea:focus { outline: none; border-color: var(--accent); }
+
+#sourceSelect { width: 100%; }
+
+.cam-note {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--muted);
+  margin: 0;
+}
+
+.cam-note a { color: var(--accent); }

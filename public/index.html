@@ -12,7 +12,10 @@
       <h1>🎛️ Atractor <span class="version">v2</span></h1>
       <p>Panel de control — los cambios se ven en vivo en la ventana de salida.</p>
     </div>
-    <button id="openOutputBtn" class="link">Abrir salida visual ↗</button>
+    <div class="row">
+      <button id="openOutputCamBtn" class="primary" title="La salida usa la cámara directamente (ideal con una sola pantalla)">Abrir salida con cámara ↗</button>
+      <button id="openOutputBtn" class="link" title="Salida sin cámara propia (la cámara la maneja este panel)">Abrir salida sin cámara ↗</button>
+    </div>
   </header>
 
   <div class="layout">
@@ -32,6 +35,7 @@
       <section class="top-grid">
         <div class="card">
           <div class="card-title">🖐️ Cámara y mano</div>
+          <p class="cam-note">Lo más simple: apretá <b>“Abrir salida con cámara”</b> arriba. La salida detecta la mano sola, aunque tape este panel.<br>Esta vista previa sirve para probar y encuadrar la cámara.</p>
           <canvas id="camPreview" class="cam-preview" width="640" height="480"></canvas>
           <div class="row">
             <button id="camBtn" class="primary">Activar cámara</button>
@@ -65,10 +69,19 @@
         </div>
 
         <div class="card">
-          <div class="card-title">🔥 Palabras trending</div>
-          <div class="row">
-            <select id="countrySelect"></select>
-            <button id="refreshTrendsBtn">↻ Actualizar</button>
+          <div class="card-title">💬 Palabras</div>
+          <select id="sourceSelect" title="De dónde salen las palabras"></select>
+          <p id="sourceHint" class="muted small"></p>
+          <div class="row" id="countryRow">
+            <select id="countrySelect" title="País"></select>
+            <button id="refreshTrendsBtn" title="Volver a buscar">↻ Actualizar</button>
+          </div>
+          <div id="customBox" class="custom-box">
+            <textarea id="customWords" rows="5" spellcheck="false" placeholder="palabra, otra palabra, frase corta…"></textarea>
+            <div class="row">
+              <button id="saveWordsBtn" class="primary">Usar estas palabras</button>
+              <button id="resetWordsBtn" title="Volver a la lista de ejemplo">Restaurar ejemplo</button>
+            </div>
           </div>
           <div id="trendsStatus" class="status info">Cargando…</div>
           <div id="trendsList" class="chips"></div>

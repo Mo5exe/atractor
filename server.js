@@ -5,7 +5,7 @@
  * - Mantiene el estado autoritativo: capas de efectos + ajustes globales.
  * - Reenvía en vivo la posición de la(s) mano(s) detectadas por la cámara.
  * - Guarda presets en data/presets.json.
- * - Trae trending topics de trends24.in cada 3 minutos.
+ * - Trae palabras (lista propia, Wikipedia, diarios, Google, X) cada 3 minutos.
  */
 "use strict";
 
@@ -17,7 +17,7 @@ const { randomUUID } = require("crypto");
 const { Server } = require("socket.io");
 
 const { SCHEMAS, NAMES, DEFAULT_SETTINGS } = require("./public/js/schemas.js");
-const { getTrends } = require("./trending-scraper.js");
+const { getWords } = require("./word-sources.js");
 
 const app = express();
 const server = http.createServer(app);
@@ -120,18 +120,22 @@ function presetSummaries() {
 loadPresets();
 
 // ---------------------------------------------------------------------------
-// Trending topics
+// Palabras (para la capa "Palabras")
 // ---------------------------------------------------------------------------
-let trendsInfo = { trends: [], source: "cargando", fetchedAt: 0, country: state.settings.trendsCountry };
+let trendsInfo = { trends: [], source: "cargando", fetchedAt: 0, country: state.settings.trendsCountry, wordSource: state.settings.wordSource };
+let wordsRequest = 0;
 
 async function refreshTrends() {
-  const country = state.settings.trendsCountry;
-  const result = await getTrends(country);
-  // Si mientras tanto cambiaron de país, descartar este resultado.
-  if (country !== state.settings.trendsCountry) return;
-  trendsInfo = Object.assign({ country }, result);
+  const req = ++wordsRequest;
+  const settings = Object.assign({}, state.settings);
+  const result = await getWords(settings);
+  // Si mientras tanto cambiaron la fuente o el país, descartar este resultado.
+  if (req !== wordsRequest) return;
+  trendsInfo = Object.assign({ country: settings.trendsCountry, wordSource: settings.wordSource }, result);
   io.emit("trends", trendsInfo);
 }
+
+const WORD_SETTINGS = ["wordSource", "trendsCountry", "customWords"];
 
 refreshTrends();
 setInterval(refreshTrends, 3 * 60 * 1000);
@@ -212,12 +216,14 @@ io.on("connection", (socket) => {
   socket.on("update-setting", (payload) => {
     const { key, value } = payload || {};
     if (!Object.prototype.hasOwnProperty.call(DEFAULT_SETTINGS, key)) return;
-    const changedCountry = key === "trendsCountry" && value !== state.settings.trendsCountry;
-    state.settings[key] = value;
+    const changedWords = WORD_SETTINGS.includes(key) && value !== state.settings[key];
+    state.settings[key] = key === "customWords" ? String(value).slice(0, 5000) : value;
     broadcastState();
-    if (changedCountry) {
-      trendsInfo = { trends: trendsInfo.trends, source: "cargando", fetchedAt: 0, country: value };
-      io.emit("trends", trendsInfo);
+    if (changedWords) {
+      if (key !== "customWords") {
+        trendsInfo = Object.assign({}, trendsInfo, { source: "cargando", country: state.settings.trendsCountry, wordSource: state.settings.wordSource });
+        io.emit("trends", trendsInfo);
+      }
       refreshTrends();
     }
   });
@@ -248,11 +254,11 @@ io.on("connection", (socket) => {
     const preset = presets.find((p) => p.id === id);
     if (!preset) return;
     state.layers = (preset.layers || []).map(normalizeLayer).filter(Boolean);
-    const prevCountry = state.settings.trendsCountry;
+    const prev = Object.assign({}, state.settings);
     state.settings = Object.assign({}, DEFAULT_SETTINGS, preset.settings || {});
     broadcastState();
     io.emit("preset-loaded", id);
-    if (state.settings.trendsCountry !== prevCountry) refreshTrends();
+    if (WORD_SETTINGS.some((k) => state.settings[k] !== prev[k])) refreshTrends();
   });
 
   socket.on("rename-preset", (payload) => {

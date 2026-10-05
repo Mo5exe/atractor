@@ -9,7 +9,7 @@
 (function () {
   "use strict";
 
-  const { SCHEMAS, NAMES, COUNTRIES } = window.EffectSchemas;
+  const { SCHEMAS, NAMES, COUNTRIES, WORD_SOURCES, DEFAULT_CUSTOM_WORDS } = window.EffectSchemas;
   const socket = io();
   window.appSocket = socket;
   window.appSettings = {};
@@ -37,6 +37,12 @@
     if (confirm("¿Eliminar todas las capas?")) socket.emit("clear-layers");
   });
   $("openOutputBtn").addEventListener("click", () => window.open("/output.html", "atractor-salida"));
+  $("openOutputCamBtn").addEventListener("click", () => {
+    // Si la cámara del panel está prendida, la apago para que no haya dos manos repetidas.
+    if (window.stopPanelCamera) window.stopPanelCamera();
+    const point = $("pointSelect").value === "index" ? "&punto=indice" : "";
+    window.open("/output.html?camara=1" + point, "atractor-salida");
+  });
 
   socket.on("error-message", (msg) => alert(msg));
 
@@ -68,6 +74,41 @@
   $("countrySelect").addEventListener("change", (e) => setSetting("trendsCountry", e.target.value));
   $("refreshTrendsBtn").addEventListener("click", () => socket.emit("refresh-trends"));
 
+  WORD_SOURCES.forEach((s) => {
+    const opt = document.createElement("option");
+    opt.value = s.id;
+    opt.textContent = s.label;
+    $("sourceSelect").appendChild(opt);
+  });
+  $("sourceSelect").addEventListener("change", (e) => {
+    setSetting("wordSource", e.target.value);
+    updateSourceUi(e.target.value);
+  });
+  let customDirty = false;
+  $("customWords").addEventListener("input", () => {
+    customDirty = true;
+    $("saveWordsBtn").textContent = "Usar estas palabras •";
+  });
+  $("saveWordsBtn").addEventListener("click", () => {
+    setSetting("customWords", $("customWords").value);
+    customDirty = false;
+    $("saveWordsBtn").textContent = "Usar estas palabras";
+  });
+  $("resetWordsBtn").addEventListener("click", () => {
+    if (!confirm("¿Reemplazar tu lista por la lista de ejemplo?")) return;
+    $("customWords").value = DEFAULT_CUSTOM_WORDS;
+    setSetting("customWords", DEFAULT_CUSTOM_WORDS);
+    customDirty = false;
+    $("saveWordsBtn").textContent = "Usar estas palabras";
+  });
+
+  function updateSourceUi(source) {
+    const info = WORD_SOURCES.find((s) => s.id === source) || WORD_SOURCES[0];
+    $("sourceHint").textContent = info.hint;
+    $("customBox").hidden = source !== "custom";
+    $("countryRow").hidden = source === "custom";
+  }
+
   function setIfIdle(el, prop, value) {
     if (document.activeElement === el) return;
     el[prop] = value;
@@ -82,6 +123,10 @@
     $("cursorChk").checked = !!s.showCursor;
     $("mirrorChk").checked = !!s.mirror;
     setIfIdle($("countrySelect"), "value", s.trendsCountry);
+    setIfIdle($("sourceSelect"), "value", s.wordSource);
+    updateSourceUi(s.wordSource);
+    // No pisar lo que la persona está escribiendo.
+    if (!customDirty && document.activeElement !== $("customWords")) $("customWords").value = s.customWords || "";
   }
 
   // ------------------------------------------------------------------ trends
@@ -89,17 +134,22 @@
     const status = $("trendsStatus");
     const list = $("trendsList");
     const country = (COUNTRIES.find((c) => c.id === info.country) || {}).label || "—";
+    const label = info.label || "Palabras";
+    const n = (info.trends || []).length;
     if (info.source === "cargando") {
       status.className = "status info";
-      status.textContent = "Buscando trending topics (" + country + ")…";
+      status.textContent = "Buscando " + label.toLowerCase() + " (" + country + ")…";
     } else if (info.source === "respaldo") {
       status.className = "status warn";
-      status.textContent = "No se pudo leer trends24.in (¿sin internet?). Usando palabras de respaldo.";
+      status.textContent = "No se pudo leer " + label + " (¿sin internet?). Mientras tanto uso tu lista propia.";
+    } else if (info.source === "propias") {
+      status.className = n ? "status ok" : "status warn";
+      status.textContent = n ? n + " palabras de tu lista." : "Tu lista está vacía: escribí algunas palabras.";
     } else {
       const time = info.fetchedAt ? new Date(info.fetchedAt).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" }) : "";
       status.className = "status ok";
-      status.textContent = (info.trends || []).length + " trends de X · " + country + (time ? " · " + time : "") +
-        (info.source === "cache" ? " (guardados)" : "");
+      status.textContent = n + " palabras · " + label + " · " + country + (time ? " · " + time : "") +
+        (info.source === "cache" ? " (guardadas)" : "");
     }
     list.innerHTML = "";
     (info.trends || []).slice(0, 20).forEach((t) => {

@@ -52,35 +52,31 @@ function parseCount(text) {
 /**
  * Extrae los trends del HTML de trends24. Exportada para poder probarla.
  */
-function parseTrends24(html) {
-  // Quedarse con la primera lista (la hora más reciente).
-  let section = html;
-  const firstList = html.search(/<ol[^>]*class="[^"]*trend-card__list[^"]*"/i);
-  if (firstList !== -1) {
-    const end = html.indexOf("</ol>", firstList);
-    section = html.slice(firstList, end === -1 ? undefined : end);
-  }
+// Textos de menús y enlaces de la página que no son trends.
+const NOT_TRENDS = /^(x|x \(twitter\)|twitter|trends24|home|inicio|about|contact|privacy|terms|login|sign in|more|ver más|more trends|timeline|table|tag cloud|advanced|world ?wide|mundial)$/i;
 
+function parseTrends24(html) {
   const trends = [];
   const seen = new Set();
-  const liRe = /<li[^>]*>([\s\S]*?)<\/li>/gi;
-  let li;
-  while ((li = liRe.exec(section)) && trends.length < MAX_TRENDS) {
-    const block = li[1];
-    const link = block.match(/<a[^>]*class="[^"]*trend-link[^"]*"[^>]*>([\s\S]*?)<\/a>/i) ||
-                 block.match(/<a[^>]*>([\s\S]*?)<\/a>/i);
-    if (!link) continue;
-    const word = decodeEntities(stripTags(link[1])).trim();
-    if (!word || word.length > 60) continue;
+
+  // Los trends reales son enlaces con class="trend-link" (la primera tarjeta
+  // es la hora más reciente). El resto de los enlaces de la página (menú,
+  // "X (Twitter)", países, etc.) se ignoran.
+  const linkRe = /<a\b[^>]*class=["'][^"']*\btrend-link\b[^"']*["'][^>]*>([\s\S]*?)<\/a>(?=([\s\S]{0,400}))/gi;
+  let m;
+  while ((m = linkRe.exec(html)) && trends.length < MAX_TRENDS) {
+    const word = decodeEntities(stripTags(m[1])).replace(/\s+/g, " ").trim();
+    if (!word || word.length > 60 || NOT_TRENDS.test(word)) continue;
     const key = word.toLowerCase();
-    if (seen.has(key)) continue;
+    if (seen.has(key)) continue; // la misma palabra en tarjetas de horas anteriores
     seen.add(key);
 
     let count = 0;
-    const dataCount = block.match(/data-count="(\d+)"/i);
+    const after = m[2].split(/<\/li>|<a\b/i)[0]; // sólo hasta el próximo trend
+    const dataCount = after.match(/data-count=["'](\d+)["']/i);
     if (dataCount) count = Number(dataCount[1]);
     else {
-      const countSpan = block.match(/class="[^"]*tweet-count[^"]*"[^>]*>([\s\S]*?)<\/span>/i);
+      const countSpan = after.match(/class=["'][^"']*tweet-count[^"']*["'][^>]*>([\s\S]*?)<\/span>/i);
       if (countSpan) count = parseCount(stripTags(countSpan[1]));
     }
     trends.push({ word, rank: trends.length + 1, count });

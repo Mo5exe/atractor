@@ -469,15 +469,23 @@ class TrendingWordsEffect {
     ctx.textBaseline = "middle";
     const APPEAR = 0.35;
     for (const it of this.items) {
-      let scale, alpha;
+      // soft: 0 = recién surgida (nítida y brillante), 1 = translúcida y difuminada
+      let scale, alpha, soft, blur;
+      const fadeTo = p.fadeTo != null ? p.fadeTo : 0.4;
+      const maxBlur = p.blur != null ? p.blur : 4;
       if (!it.flying) {
         const a = Math.min(1, it.age / APPEAR);
         scale = 1 + 2.2 * Math.pow(a - 1, 3) + 1.2 * Math.pow(a - 1, 2); // surge con un leve rebote
-        alpha = Math.min(1, a * 1.5);
+        soft = Math.max(0, Math.min(1, (it.age - APPEAR) / 0.5));
+        soft = soft * soft * (3 - 2 * soft);
+        alpha = Math.min(1, a * 1.5) * (1 - (1 - fadeTo) * soft);
+        blur = maxBlur * soft;
       } else {
         const f = it.flyAge / it.flyTime;
+        soft = 1;
         scale = 1 + f * 0.35;
-        alpha = Math.max(0, 1 - f * f);
+        alpha = fadeTo * Math.max(0, 1 - f * f);
+        blur = maxBlur * (1 + f); // se difumina más mientras se va
       }
       let size = it.size * Math.max(0.01, scale) * (1 + 0.4 * it.near);
       ctx.font = "800 " + Math.round(size) + "px 'Segoe UI', system-ui, sans-serif";
@@ -499,15 +507,20 @@ class TrendingWordsEffect {
       ctx.translate(x, y);
       ctx.rotate(it.rot);
       ctx.globalAlpha = alpha;
+      if (blur > 0.3) ctx.filter = "blur(" + blur.toFixed(1) + "px)";
       if (p.glow) {
         ctx.shadowColor = p.color;
-        ctx.shadowBlur = 24;
+        ctx.shadowBlur = 24 + 30 * soft;
       }
       ctx.fillStyle = p.color;
       ctx.fillText(it.text, 0, 0);
       ctx.shadowBlur = 0;
-      ctx.fillStyle = "rgba(255,255,255," + (0.35 * alpha) + ")";
-      ctx.fillText(it.text, 0, 0);
+      // Brillo blanco en el centro sólo al surgir.
+      if (soft < 1) {
+        ctx.fillStyle = "rgba(255,255,255," + (0.35 * alpha * (1 - soft)) + ")";
+        ctx.fillText(it.text, 0, 0);
+      }
+      ctx.filter = "none";
       ctx.restore();
     }
     ctx.globalAlpha = 1;
