@@ -60,7 +60,9 @@
       { key: "amplitude", label: "Amplitud", type: "range", min: 2, max: 100, step: 1, default: 24 },
       { key: "frequency", label: "Frecuencia", type: "range", min: 0.3, max: 8, step: 0.1, default: 2.2 },
       { key: "speed", label: "Velocidad", type: "range", min: 0, max: 5, step: 0.05, default: 1.0 },
-      { key: "levelY", label: "Nivel de agua (%)", type: "range", min: 0, max: 100, step: 1, default: 60 },
+      { key: "levelY", label: "Nivel / centro del agua (%)", type: "range", min: 0, max: 100, step: 1, default: 60 },
+      { key: "band", label: "Banda espejada (olas arriba y abajo)", type: "checkbox", default: true },
+      { key: "thickness", label: "Grosor de la banda (%)", type: "range", min: 2, max: 120, step: 1, default: 35 },
       { key: "opacity", label: "Opacidad", type: "range", min: 0.1, max: 1, step: 0.05, default: 0.55 },
       ATTRACT,
       { key: "color", label: "Color", type: "color", default: "#1e6fd9" }

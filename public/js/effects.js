@@ -325,11 +325,66 @@ class FireEffect {
 // ---------------------------------------------------------------------------
 // 5) AGUA — el agua sube (o baja) hacia la mano
 // ---------------------------------------------------------------------------
+// Dibuja el agua. Con "Banda espejada" es una franja con olas arriba y abajo
+// (la de abajo es el espejo de la de arriba); si no, llena hasta el borde.
+// Se dibuja más allá de los bordes para que al rotar la capa no se vean cortes.
+function drawWaterShape(ctx, w, h, p, st, rgb) {
+  const band = p.band !== false;
+  const levelY = (p.levelY / 100) * h - (st.level || 0);
+  const margin = Math.max(w, h);
+  const x0 = -margin;
+  const x1 = w + margin;
+  const step = Math.max(4, Math.floor(w / 160));
+  const sigma = w * 0.09;
+  const waveCount = Math.round(p.waveCount);
+  const half = band ? ((p.thickness != null ? p.thickness : 35) / 100) * h / 2 : 0;
+  ctx.globalCompositeOperation = "source-over";
+  for (let i = 0; i < waveCount; i++) {
+    const phase = st.phase + i * 1.3;
+    const amp = p.amplitude * (st.ampBoost || 1) * (1 - i * 0.15);
+    const freq = p.frequency * (1 + i * 0.12);
+    // Capas internas: en la banda se van achicando hacia el centro.
+    const inset = i * (p.amplitude * 0.3);
+    const wave = (x) => Math.sin((x / w) * Math.PI * 2 * freq + phase) * amp;
+    const bump = (x) => {
+      if (st.lift <= 0.001 || st.liftY === undefined) return 0;
+      const g = Math.exp(-((x - st.liftX) * (x - st.liftX)) / (2 * sigma * sigma));
+      return g * st.lift * (1 - i * 0.12);
+    };
+    ctx.beginPath();
+    if (band) {
+      // Hacia la mano la banda se hincha (arriba y abajo a la vez).
+      const reach = Math.min(Math.abs(st.liftY - levelY), h * 0.45) * 0.85;
+      const top = [];
+      for (let x = x0; x <= x1 + step; x += step) {
+        const y = levelY - half + inset + wave(x) - reach * bump(x);
+        top.push([x, y]);
+      }
+      ctx.moveTo(top[0][0], top[0][1]);
+      for (const [x, y] of top) ctx.lineTo(x, y);
+      // Borde de abajo: espejo del de arriba respecto del centro.
+      for (let j = top.length - 1; j >= 0; j--) ctx.lineTo(top[j][0], 2 * levelY - top[j][1]);
+    } else {
+      const reach = st.liftY !== undefined ? (st.liftY - levelY) : 0;
+      ctx.moveTo(x0, h + margin);
+      for (let x = x0; x <= x1 + step; x += step) {
+        ctx.lineTo(x, levelY + inset + wave(x) + reach * 0.85 * bump(x));
+      }
+      ctx.lineTo(x1 + step, h + margin);
+    }
+    ctx.closePath();
+    ctx.fillStyle = rgbToCssW(rgb, p.opacity * (1 - i * 0.15));
+    ctx.fill();
+  }
+}
+function rgbToCssW(c, a) { return "rgba(" + c.r + "," + c.g + "," + c.b + "," + a + ")"; }
+
 class WaterEffect {
-  constructor() { this.time = 0; this.env = null; this.lift = 0; this.liftX = 0; }
+  constructor() { this.time = 0; this.env = null; this.lift = 0; this.liftX = 0; this.phase = 0; }
   update(dt, t, w, h, p, env) {
     this.time = t;
     this.env = env;
+    this.phase += dt * p.speed;
     const hand = env && env.hands && env.hands[0];
     // La "ola de la mano" crece y se apaga suavemente.
     const target = hand ? env.strength : 0;
@@ -340,33 +395,7 @@ class WaterEffect {
     }
   }
   draw(ctx, w, h, p) {
-    const levelY = (p.levelY / 100) * h;
-    ctx.globalCompositeOperation = "source-over";
-    const waveCount = Math.round(p.waveCount);
-    const step = Math.max(4, Math.floor(w / 160));
-    const sigma = w * 0.09;
-    const reach = this.liftY !== undefined ? (this.liftY - levelY) : 0;
-    for (let i = 0; i < waveCount; i++) {
-      const phase = this.time * p.speed + i * 1.3;
-      const amp = p.amplitude * (1 - i * 0.15);
-      const freq = p.frequency * (1 + i * 0.12);
-      const yOffset = i * (p.amplitude * 0.3);
-      ctx.beginPath();
-      ctx.moveTo(0, h);
-      ctx.lineTo(0, levelY + yOffset);
-      for (let x = 0; x <= w + step; x += step) {
-        let y = levelY + yOffset + Math.sin((x / w) * Math.PI * 2 * freq + phase) * amp;
-        if (this.lift > 0.001) {
-          const g = Math.exp(-((x - this.liftX) * (x - this.liftX)) / (2 * sigma * sigma));
-          y += reach * 0.85 * this.lift * g * (1 - i * 0.12);
-        }
-        ctx.lineTo(x, y);
-      }
-      ctx.lineTo(w, h);
-      ctx.closePath();
-      ctx.fillStyle = hexToRgba(p.color, p.opacity * (1 - i * 0.15));
-      ctx.fill();
-    }
+    drawWaterShape(ctx, w, h, p, this, hexToRgb(p.color));
   }
 }
 
