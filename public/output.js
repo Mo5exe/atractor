@@ -16,12 +16,22 @@ socket.on('init', (state) => {
   appState = { ...appState, ...state };
   engine.setLayers(appState.layers);
   engine.setAttractorStrength(appState.attractorStrength);
+
+  // Si hay una capa de trending, pedir las tendencias
+  if (appState.layers.some(l => l.type === 'trending' && l.enabled)) {
+    socket.emit('getTrends', 'global');
+  }
 });
 
 // === ESCUCHAR CAMBIOS ===
 socket.on('updateLayers', (layers) => {
   appState.layers = layers;
   engine.setLayers(layers);
+
+  // Si hay una capa de trending, pedir las tendencias
+  if (layers.some(l => l.type === 'trending' && l.enabled)) {
+    socket.emit('getTrends', 'global');
+  }
 });
 
 socket.on('handPosition', (position) => {
@@ -56,6 +66,15 @@ socket.on('presetLoaded', (data) => {
   appState.attractorStrength = data.attractorStrength;
   engine.setLayers(appState.layers);
   engine.setAttractorStrength(appState.attractorStrength);
+
+  // Si hay una capa de trending, pedir las tendencias
+  if (appState.layers.some(l => l.type === 'trending' && l.enabled)) {
+    socket.emit('getTrends', 'global');
+  }
+});
+
+socket.on('trendsUpdated', (trends) => {
+  engine.setTrendingWords(trends);
 });
 
 // === LOOP DE ANIMACIÓN ===

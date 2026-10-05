@@ -95,7 +95,8 @@ const EFFECT_TYPES = [
   { id: 'fractal', name: 'Árbol Fractal' },
   { id: 'flowfield', name: 'Flow Field' },
   { id: 'fire', name: 'Fuego' },
-  { id: 'water', name: 'Agua' }
+  { id: 'water', name: 'Agua' },
+  { id: 'trending', name: 'Trending Topics' }
 ];
 
 document.getElementById('addLayerBtn').addEventListener('click', () => {
@@ -139,6 +140,12 @@ function getDefaultParams(type) {
       wavelength: 80,
       amplitude: 20,
       speed: 0.5
+    },
+    trending: {
+      baseSize: 24,
+      maxSize: 80,
+      color: '#ff006e',
+      spawnRate: 0.3
     }
   };
   return defaults[type] || {};

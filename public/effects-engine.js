@@ -53,6 +53,9 @@ class EffectsEngine {
         case 'water':
           this.createWaterLayer(layer, idx);
           break;
+        case 'trending':
+          this.createTrendingLayer(layer, idx);
+          break;
       }
     });
   }
@@ -135,6 +138,73 @@ class EffectsEngine {
     });
   }
 
+  createTrendingLayer(layer, layerIdx) {
+    this.particles.push({
+      layerIdx,
+      type: 'trending',
+      availableWords: [],
+      baseSize: layer.params.baseSize || 24,
+      maxSize: layer.params.maxSize || 80,
+      color: layer.params.color || '#ff006e',
+      fontFamily: layer.params.fontFamily || 'Arial, sans-serif',
+      spawnRate: layer.params.spawnRate || 0.3, // probabilidad de generar palabra por frame
+      lastHandDetected: false,
+      wordIndex: 0
+    });
+  }
+
+  setTrendingWords(words) {
+    this.particles.forEach(p => {
+      if (p.type === 'trending') {
+        p.availableWords = words || [];
+        p.wordIndex = 0;
+      }
+    });
+  }
+
+  spawnTrendingWord(trendingLayer) {
+    if (trendingLayer.availableWords.length === 0) return;
+
+    const word = trendingLayer.availableWords[trendingLayer.wordIndex % trendingLayer.availableWords.length];
+    trendingLayer.wordIndex++;
+
+    // Generar palabra en posición aleatoria en los bordes
+    let x, y;
+    const edge = Math.random();
+    if (edge < 0.25) {
+      // top
+      x = Math.random() * this.width;
+      y = -20;
+    } else if (edge < 0.5) {
+      // bottom
+      x = Math.random() * this.width;
+      y = this.height + 20;
+    } else if (edge < 0.75) {
+      // left
+      x = -50;
+      y = Math.random() * this.height;
+    } else {
+      // right
+      x = this.width + 50;
+      y = Math.random() * this.height;
+    }
+
+    this.particles.push({
+      layerIdx: trendingLayer.layerIdx,
+      type: 'trending-word',
+      text: word.word,
+      popularity: word.popularity || 0.5,
+      x: x,
+      y: y,
+      vx: 0,
+      vy: 0,
+      baseSize: trendingLayer.baseSize * (0.5 + word.popularity * 0.5),
+      life: 1,
+      maxLife: 1,
+      parentLayer: trendingLayer
+    });
+  }
+
   // Ruido Perlin simple para Flow Field
   perlin(x, y) {
     const xi = Math.floor(x) & 255;
@@ -206,6 +276,35 @@ class EffectsEngine {
         }
       } else if (p.type === 'water') {
         p.offset += p.speed * 0.05;
+      } else if (p.type === 'trending') {
+        // Procesar capas de trending para generar palabras
+        if (this.attractorPos && Math.random() < p.spawnRate) {
+          this.spawnTrendingWord(p);
+        }
+      } else if (p.type === 'trending-word') {
+        // Las palabras convergen hacia el atractor
+        const dx = this.attractorPos.x - p.x;
+        const dy = this.attractorPos.y - p.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+
+        if (distance > 1) {
+          const force = (this.attractorStrength * 0.08) / (distance * 0.01 + 1);
+          p.vx += (dx / distance) * force;
+          p.vy += (dy / distance) * force;
+        }
+
+        // Aplicar fricción
+        p.vx *= 0.95;
+        p.vy *= 0.95;
+
+        p.x += p.vx;
+        p.y += p.vy;
+        p.life -= 0.008;
+
+        // Remover si está fuera o sin vida
+        if (p.life < 0 || p.x < -100 || p.x > this.width + 100 || p.y < -100 || p.y > this.height + 100) {
+          this.particles.splice(idx, 1);
+        }
       }
     });
   }
@@ -238,6 +337,8 @@ class EffectsEngine {
         this.ctx.fill();
       } else if (p.type === 'water') {
         this.drawWater(p);
+      } else if (p.type === 'trending-word') {
+        this.drawTrendingWord(p);
       }
     });
 
@@ -280,6 +381,34 @@ class EffectsEngine {
       else this.ctx.lineTo(x, y);
     }
     this.ctx.stroke();
+  }
+
+  drawTrendingWord(p) {
+    const dx = this.attractorPos.x - p.x;
+    const dy = this.attractorPos.y - p.y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+
+    // Tamaño aumenta cuando la mano se acerca
+    const proximityFactor = Math.max(0.5, 1 - (distance / 500));
+    const fontSize = p.baseSize * (1 + proximityFactor * 2);
+
+    this.ctx.font = `bold ${Math.round(fontSize)}px ${p.parentLayer.fontFamily}`;
+    this.ctx.fillStyle = p.parentLayer.color;
+    this.ctx.globalAlpha = p.life * 0.8;
+    this.ctx.textAlign = 'center';
+    this.ctx.textBaseline = 'middle';
+
+    // Aplicar sombra para mejor legibilidad
+    this.ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
+    this.ctx.shadowBlur = 4;
+    this.ctx.shadowOffsetX = 2;
+    this.ctx.shadowOffsetY = 2;
+
+    this.ctx.fillText(p.text, p.x, p.y);
+
+    // Limpiar sombra
+    this.ctx.shadowColor = 'transparent';
+    this.ctx.shadowBlur = 0;
   }
 
   render() {

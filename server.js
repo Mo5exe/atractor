@@ -2,6 +2,7 @@ const express = require('express');
 const http = require('http');
 const socketIO = require('socket.io');
 const path = require('path');
+const trendingScraper = require('./trending-scraper');
 
 const app = express();
 const server = http.createServer(app);
@@ -14,6 +15,17 @@ const io = socketIO(server, {
 
 app.use(express.static('public'));
 app.use(express.json());
+
+// === RUTAS API ===
+app.get('/api/trends', async (req, res) => {
+  try {
+    const country = req.query.country || 'global';
+    const trends = await trendingScraper.getTrends(country);
+    res.json({ success: true, trends });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
 
 // Almacenar estado global de la aplicación
 let appState = {
@@ -116,10 +128,31 @@ io.on('connection', (socket) => {
     io.emit('presetsUpdated', appState.presets);
   });
 
+  // Obtener trending topics
+  socket.on('getTrends', async (country = 'global') => {
+    try {
+      const trends = await trendingScraper.getTrends(country);
+      socket.emit('trendsUpdated', trends);
+    } catch (error) {
+      console.error('Error obteniendo trends:', error);
+      socket.emit('trendsUpdated', trendingScraper.getFallbackTrends());
+    }
+  });
+
   socket.on('disconnect', () => {
     console.log('Cliente desconectado:', socket.id);
   });
 });
+
+// === ACTUALIZAR TRENDS PERIÓDICAMENTE ===
+setInterval(async () => {
+  try {
+    const trends = await trendingScraper.getTrends('global');
+    io.emit('trendsUpdated', trends);
+  } catch (error) {
+    console.error('Error updating trends:', error);
+  }
+}, 3 * 60 * 1000); // Cada 3 minutos
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
